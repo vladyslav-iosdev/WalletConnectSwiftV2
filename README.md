@@ -11,8 +11,18 @@ Responder client is usually a wallet.
 ##### Instantiate Client
 ```Swift
 let url = URL(string: "wss://relay.walletconnect.org")!
-let options = WalletClientOptions(apiKey: String, name: String, isController: true, metadata: AppMetadata(name: String?, description: String?, url: String?, icons: [String]?), relayURL: url)
-let client = WalletConnectClient(options: options)
+        
+let appMetadata = AppMetadata(
+    name: "Awesome Wallet",
+    description: "A nicey description!",
+    url: "awesome.wallet",
+    icons: ["awesome.wallet/icon.png"])
+
+let client = WalletConnectClient(
+    metadata: appMetadata,
+    apiKey: "<YOUR-API-KEY-HERE>",
+    isController: true,
+    relayURL: url)
 ```
 The `controller` client will always be the "wallet" which is exposing blockchain accounts to a "dapp" and therefore is also in charge of signing.
 
@@ -28,23 +38,23 @@ Sessions are always proposed by the `Proposer` client so `Responder` client need
 ```Swift
 class ClientDelegate: WalletConnectClientDelegate {
 ...
-    func didReceive(sessionProposal: SessionType.Proposal) {
+    func didReceive(sessionProposal: SessionProposal) {
         client.approve(proposal: proposal)
     }
 ...
 ```
 or 
 ```Swift
-    func didReceive(sessionProposal: SessionType.Proposal) {
+    func didReceive(sessionProposal: SessionProposal) {
         client.reject(proposal: proposal, reason: Reason)
     }
 ```
 #### Handle Delegate methods
 ```Swift
-    func didSettle(session: SessionType.Settled) {
+    func didSettle(session: Session) {
         // handle settled session
     }
-    func didReceive(sessionProposal: SessionType.Proposal) {
+    func didReceive(sessionProposal: SessionProposal) {
         // handle session proposal
     }
     func didReceive(sessionRequest: SessionRequest) {
