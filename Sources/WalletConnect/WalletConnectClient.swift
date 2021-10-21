@@ -23,7 +23,30 @@ public final class WalletConnectClient {
     private let secureStorage = SecureStorage()
     
     // MARK: - Public interface
-    public init(metadata: AppMetadata, apiKey: String, isController: Bool, relayURL: URL) {
+    
+    /**
+     Initializes a WalletConnect client.
+     
+     - parameters:
+        - metadata: The App's information that is shared with connected peers.
+        - apiKey: The API key that identifies the client.
+        - isController: Whether this client should be responsible to control permissions on a session.
+        - relayURL: The URL of the relay server this client will connect to.
+     
+     You need to register your app and obtain a production API key to run the WalletConnect protocol. You can sign up for
+     an API key at [WalletConnect] official site.
+     
+     When initializing a client, be sure to provide meaningful information about your app through the `metadata` field.
+     This info will be shared with connected peers and can be displayed to present your app to end-users.
+     
+     [WalletConnect]: https://walletconnect.com/
+     */
+    public init(
+        metadata: AppMetadata,
+        apiKey: String,
+        isController: Bool,
+        relayURL: URL = URL(string: "wss://relay.walletconnect.com")!
+    ) {
         self.metadata = metadata
         self.isController = isController
         self.relay = Relay(transport: JSONRPCTransport(url: relayURL), crypto: crypto, logger: logger)

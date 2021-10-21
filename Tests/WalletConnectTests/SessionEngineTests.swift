@@ -12,7 +12,7 @@ class SessionEngineTests: XCTestCase {
         crypto = Crypto(keychain: DictionaryKeychain())
         relay = MockedRelay()
         subscriber = MockedSubscriber()
-        let meta = AppMetadata(name: nil, description: nil, url: nil, icons: nil)
+        let meta = AppMetadata(name: "", description: "", url: "", icons: [])
         engine = SessionEngine(relay: relay, crypto: crypto, subscriber: subscriber, sequencesStore: SessionDictionaryStore(logger: MuteLogger()), isController: false, metadata: meta, logger: MuteLogger())
     }
 

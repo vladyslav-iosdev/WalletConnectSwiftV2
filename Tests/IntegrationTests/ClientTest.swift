@@ -14,7 +14,7 @@ final class ClientTests: XCTestCase {
 
     static func makeClientDelegate(isController: Bool, url: URL) -> ClientDelegate {
         let client = WalletConnectClient(
-            metadata: AppMetadata(name: nil, description: nil, url: nil, icons: nil),
+            metadata: AppMetadata(name: "", description: "", url: "", icons: []),
             apiKey: "",
             isController: isController,
             relayURL: url)

@@ -139,10 +139,10 @@ extension ResponderViewController: WalletConnectClientDelegate {
         print("[RESPONDER] WC: Did receive session proposal")
         let appMetadata = sessionProposal.proposer
         let info = SessionInfo(
-            name: appMetadata.name ?? "",
-            descriptionText: appMetadata.description ?? "",
-            dappURL: appMetadata.url ?? "",
-            iconURL: appMetadata.icons?.first ?? "",
+            name: appMetadata.name,
+            descriptionText: appMetadata.description,
+            dappURL: appMetadata.url,
+            iconURL: appMetadata.icons.first ?? "",
             chains: sessionProposal.permissions.blockchains,
             methods: sessionProposal.permissions.methods)
         currentProposal = sessionProposal
@@ -163,7 +163,7 @@ extension ResponderViewController: WalletConnectClientDelegate {
             return ActiveSessionItem(
                 dappName: app?.name ?? "",
                 dappURL: app?.url ?? "",
-                iconURL: app?.icons?.first ?? "",
+                iconURL: app?.icons.first ?? "",
                 topic: session.topic)
         }
         DispatchQueue.main.async { // FIXME: Delegate being called from background thread
