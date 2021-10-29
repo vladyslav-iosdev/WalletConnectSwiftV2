@@ -17,10 +17,13 @@ enum WalletConnectError: Error {
     
     enum InternalReason {
         case notApproved
-        case pairingParamsURIInitialization
+        case malformedPairingURI
         case unauthorizedMatchingController
         case noSequenceForTopic
         case pairingProposalGenerationFailed
+        case subscriptionIdNotFound
+        case keyNotFound
+        case deserialisationFailed
     }
     
     enum UnauthorizedReason {
@@ -60,10 +63,13 @@ extension WalletConnectError.InternalReason: CustomStringConvertible {
     var code: Int {
         switch self {
         case .notApproved: return 1601
-        case .pairingParamsURIInitialization: return 0000000
+        case .malformedPairingURI: return 0000000
         case .unauthorizedMatchingController: return 0000000
         case .noSequenceForTopic: return 0000000
         case .pairingProposalGenerationFailed: return 0000000
+        case .subscriptionIdNotFound: return 00
+        case .keyNotFound: return 00
+        case .deserialisationFailed: return 00
         }
     }
     
@@ -72,14 +78,20 @@ extension WalletConnectError.InternalReason: CustomStringConvertible {
         switch self {
         case .notApproved:
             return "Session not approved"
-        case .pairingParamsURIInitialization:
-            return "PairingParamsUriInitialization"
+        case .malformedPairingURI:
+            return "Pairing URI string is invalid."
         case .unauthorizedMatchingController:
             return "unauthorizedMatchingController"
         case .noSequenceForTopic:
             return "noSequenceForTopic"
         case .pairingProposalGenerationFailed:
             return "pairingProposalGenerationFailed"
+        case .subscriptionIdNotFound:
+            return "Subscription Id Not Found"
+        case .keyNotFound:
+            return "Key Not Found"
+        case .deserialisationFailed:
+            return "Deserialisation Failed"
         }
     }
 }
