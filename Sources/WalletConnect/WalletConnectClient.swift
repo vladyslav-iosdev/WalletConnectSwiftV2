@@ -5,7 +5,7 @@ public protocol WalletConnectClientDelegate: AnyObject {
     func didReceive(sessionProposal: SessionProposal)
     func didReceive(sessionRequest: SessionRequest)
     func didSettle(session: Session)
-    func didSettle(pairing: PairingType.Settled)
+    func didSettle(pairing: Pairing)
     func didReject(sessionPendingTopic: String, reason: SessionType.Reason)
     func didDelete(sessionTopic: String, reason: SessionType.Reason)
     func didUpgrade(sessionTopic: String, permissions: SessionType.Permissions)
@@ -27,10 +27,10 @@ public final class WalletConnectClient {
     // MARK: - Public interface
 
     public convenience init(metadata: AppMetadata, apiKey: String, isController: Bool, relayURL: URL) {
-        self.init(metadata: metadata, apiKey: apiKey, isController: isController, relayURL: relayURL, logger: MuteLogger())
+        self.init(metadata: metadata, apiKey: apiKey, isController: isController, relayURL: relayURL, logger: MuteLogger(), keyValueStore: UserDefaults.standard)
     }
     
-    init(metadata: AppMetadata, apiKey: String, isController: Bool, relayURL: URL, logger: BaseLogger = MuteLogger(), keychain: KeychainStorage = KeychainStorage()) {
+    init(metadata: AppMetadata, apiKey: String, isController: Bool, relayURL: URL, logger: BaseLogger = MuteLogger(), keyValueStore: KeyValueStorage, keychain: KeychainStorage = KeychainStorage()) {
         self.metadata = metadata
         self.isController = isController
 //        try? keychain.deleteAll() // Use for cleanup while lifecycles are not handled yet, but FIXME whenever
@@ -39,7 +39,8 @@ public final class WalletConnectClient {
         let serialiser = JSONRPCSerialiser(crypto: crypto)
         self.relay = WalletConnectRelay(networkRelayer: wakuRelay, jsonRpcSerialiser: serialiser, logger: logger)
         let sessionSequencesStore = SessionUserDefaultsStore(logger: logger)
-        let pairingSequencesStore = PairingUserDefaultsStore(logger: logger)
+//        let pairingSequencesStore = PairingUserDefaultsStore(logger: logger)
+        let pairingSequencesStore = SequenceStore<PairingSequence>(defaults: keyValueStore)
         self.pairingEngine = PairingEngine(relay: relay, crypto: crypto, subscriber: WCSubscriber(relay: relay, logger: logger), sequencesStore: pairingSequencesStore, isController: isController, metadata: metadata, logger: logger)
         self.sessionEngine = SessionEngine(relay: relay, crypto: crypto, subscriber: WCSubscriber(relay: relay, logger: logger), sequencesStore: sessionSequencesStore, isController: isController, metadata: metadata, logger: logger)
         setUpEnginesCallbacks()
@@ -50,7 +51,7 @@ public final class WalletConnectClient {
     public func connect(params: ConnectParams) throws -> String? {
         logger.debug("Connecting Application")
         if let topic = params.pairing?.topic,
-           let pairing = pairingEngine.sequencesStore.get(topic: topic) {
+           let pairing = try? pairingEngine.sequencesStore.get(key: topic) {
             logger.debug("Connecting with existing pairing")
             fatalError("not implemented")
             return nil
@@ -122,7 +123,7 @@ public final class WalletConnectClient {
     }
     
     public func ping(topic: String, completion: @escaping ((Result<Void, Error>) -> ())) {
-        if pairingEngine.sequencesStore.get(topic: topic) != nil {
+        if (try? pairingEngine.sequencesStore.get(key: topic)) != nil {
             pairingEngine.ping(topic: topic) { result in
                 completion(result)
             }
@@ -149,7 +150,8 @@ public final class WalletConnectClient {
     }
     
     public func getSettledPairings() -> [PairingType.Settled] {
-        pairingEngine.sequencesStore.getSettled()
+//        pairingEngine.sequencesStore.getSettled()
+        fatalError("fixme")
     }
     
     //MARK: - Private
@@ -158,14 +160,14 @@ public final class WalletConnectClient {
         pairingEngine.onSessionProposal = { [unowned self] proposal in
             self.proposeSession(proposal: proposal)
         }
-        pairingEngine.onPairingApproved = { [unowned self] settledPairing, pendingTopic in
+        pairingEngine.onPairingApproved = { [unowned self] settledPairing, pendingTopic, relayOptions in
             self.delegate?.didSettle(pairing: settledPairing)
             guard let permissions = sessionPermissions[pendingTopic] else {
                 logger.debug("Cound not find permissions for pending topic: \(pendingTopic)")
                 return
             }
             sessionPermissions[pendingTopic] = nil
-            self.sessionEngine.proposeSession(settledPairing: settledPairing, permissions: permissions)
+            self.sessionEngine.proposeSession(settledPairing: settledPairing, permissions: permissions, relay: relayOptions)
         }
         sessionEngine.onSessionApproved = { [unowned self] settledSession in
             let session = Session(topic: settledSession.topic, peer: settledSession.peer.metadata)

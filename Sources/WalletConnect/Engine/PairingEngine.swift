@@ -6,9 +6,9 @@ final class PairingEngine {
     private let relayer: WalletConnectRelaying
     private let crypto: Crypto
     private var isController: Bool
-    var sequencesStore: PairingSequencesStore
+    var sequencesStore: SequenceStore<PairingSequence>
     var onSessionProposal: ((SessionType.Proposal)->())?
-    var onPairingApproved: ((PairingType.Settled, String)->())?
+    var onPairingApproved: ((Pairing, String, RelayProtocolOptions)->())?
     private var metadata: AppMetadata
     private var publishers = [AnyCancellable]()
     private let logger: BaseLogger
@@ -16,7 +16,7 @@ final class PairingEngine {
     init(relay: WalletConnectRelaying,
          crypto: Crypto,
          subscriber: WCSubscribing,
-         sequencesStore: PairingSequencesStore,
+         sequencesStore: SequenceStore<PairingSequence>,
          isController: Bool,
          metadata: AppMetadata,
          logger: BaseLogger) {
@@ -31,19 +31,34 @@ final class PairingEngine {
         restoreSubscriptions()
     }
     
-    func pair(_ proposal: PairingType.Proposal, completion: @escaping (Result<PairingType.Settled, Error>) -> Void) {
+    // make a public pairing type
+    func pair(_ proposal: PairingType.Proposal, completion: @escaping (Result<Pairing, Error>) -> Void) {
         let privateKey = Crypto.X25519.generatePrivateKey()
         let selfPublicKey = privateKey.publicKey.toHexString()
         
-        let pendingPairing = PairingType.Pending(
-            status: .responded,
+//        let pendingPairing = PairingType.Pending(
+//            status: .responded,
+//            topic: proposal.topic,
+//            relay: proposal.relay,
+//            self: PairingType.Participant(publicKey: selfPublicKey),
+//            proposal: proposal)
+//
+//        wcSubscriber.setSubscription(topic: proposal.topic)
+//        sequencesStore.create(topic: proposal.topic, sequenceState: .pending(pendingPairing))
+        
+        let pending = PairingSequence.Pending(
+            proposal: proposal,
+            status: .responded)
+        var pairingSequence = PairingSequence(
             topic: proposal.topic,
             relay: proposal.relay,
-            self: PairingType.Participant(publicKey: selfPublicKey),
-            proposal: proposal)
+            self: PairingType.Participant(publicKey: selfPublicKey, metadata: metadata),
+            expiryDate: Date(timeIntervalSinceNow: TimeInterval(Time.day)),
+            sequenceState: .left(pending))
         
         wcSubscriber.setSubscription(topic: proposal.topic)
-        sequencesStore.create(topic: proposal.topic, sequenceState: .pending(pendingPairing))
+        try? sequencesStore.set(pairingSequence, forKey: proposal.topic)
+        
         // settle on topic B
         let agreementKeys = try! Crypto.X25519.generateAgreementKeys(
             peerPublicKey: Data(hex: proposal.proposer.publicKey),
@@ -51,20 +66,35 @@ final class PairingEngine {
         let settledTopic = agreementKeys.sharedSecret.sha256().toHexString()
         let selfParticipant = PairingType.Participant(publicKey: selfPublicKey, metadata: metadata)
         let controllerKey = proposal.proposer.controller ? proposal.proposer.publicKey : selfPublicKey
-        let settledPairing = PairingType.Settled(
-            topic: settledTopic,
-            relay: proposal.relay,
-            self: selfParticipant,
+//        let settledPairing = PairingType.Settled(
+//            topic: settledTopic,
+//            relay: proposal.relay,
+//            self: selfParticipant,
+//            peer: PairingType.Participant(publicKey: proposal.proposer.publicKey),
+//            permissions: PairingType.Permissions(
+//                jsonrpc: proposal.permissions.jsonrpc,
+//                controller: Controller(publicKey: controllerKey)),
+//            expiry: Int(Date().timeIntervalSince1970) + proposal.ttl,
+//            state: nil) // FIXME: State
+//
+//        wcSubscriber.setSubscription(topic: settledTopic)
+//        sequencesStore.update(topic: proposal.topic, newTopic: settledTopic, sequenceState: .settled(settledPairing))
+        
+        let settled = PairingSequence.Settled(
             peer: PairingType.Participant(publicKey: proposal.proposer.publicKey),
             permissions: PairingType.Permissions(
                 jsonrpc: proposal.permissions.jsonrpc,
                 controller: Controller(publicKey: controllerKey)),
-            expiry: Int(Date().timeIntervalSince1970) + proposal.ttl,
             state: nil) // FIXME: State
+        let settledPairing = PairingSequence(
+            topic: settledTopic,
+            relay: proposal.relay,
+            self: selfParticipant,
+            expiryDate: Date(timeIntervalSinceNow: TimeInterval(proposal.ttl)),
+            sequenceState: .right(settled))
         
-                
         wcSubscriber.setSubscription(topic: settledTopic)
-        sequencesStore.update(topic: proposal.topic, newTopic: settledTopic, sequenceState: .settled(settledPairing))
+        try? sequencesStore.update(topic: proposal.topic, newTopic: settledTopic, sequenceState: settledPairing)
         
         crypto.set(agreementKeys: agreementKeys, topic: settledTopic)
         crypto.set(privateKey: privateKey)
@@ -82,7 +112,8 @@ final class PairingEngine {
             case .success:
                 self?.wcSubscriber.removeSubscription(topic: proposal.topic)
                 self?.logger.debug("Success on wc_pairingApprove - settled topic - \(settledTopic)")
-                completion(.success(settledPairing))
+                let pairingSuccess = Pairing(topic: settledTopic, peer: settled.peer.metadata)
+                completion(.success(pairingSuccess))
             case .failure(let error):
                 completion(.failure(error))
             }
@@ -107,13 +138,22 @@ final class PairingEngine {
         let proposal = PairingType.Proposal(topic: topic, relay: relay, proposer: proposer, signal: signal, permissions: permissions, ttl: getDefaultTTL())
         let `self` = PairingType.Participant(publicKey: publicKey, metadata: metadata)
         let pending = PairingType.Pending(status: .proposed, topic: topic, relay: relay, self: `self`, proposal: proposal)
-        sequencesStore.create(topic: topic, sequenceState: .pending(pending))
+//        sequencesStore.create(topic: topic, sequenceState: .pending(pending))
+        
+        let pendingPairing = PairingSequence(
+            topic: topic,
+            relay: relay,
+            self: `self`,
+            expiryDate: Date(timeIntervalSinceNow: TimeInterval(Time.day)),
+            sequenceState: .left(PairingSequence.Pending(proposal: proposal, status: .proposed)))
+        try? sequencesStore.set(pendingPairing, forKey: topic)
+        
         wcSubscriber.setSubscription(topic: topic)
         return pending
     }
     
     func ping(topic: String, completion: @escaping ((Result<Void, Error>) -> ())) {
-        guard let _ = sequencesStore.get(topic: topic) else {
+        guard let _ = try? sequencesStore.get(key: topic) else {
             logger.debug("Could not find pairing to ping for topic \(topic)")
             return
         }
@@ -186,7 +226,7 @@ final class PairingEngine {
 
     private func handlePairingPayload(_ payload: PairingType.PayloadParams, for topic: String, requestId: Int64) {
         logger.debug("Will handle pairing payload")
-        guard let _ = sequencesStore.get(topic: topic) else {
+        guard let _ = try? sequencesStore.get(key: topic) else {
             logger.error("Pairing for the topic: \(topic) does not exist")
             return
         }
@@ -208,7 +248,7 @@ final class PairingEngine {
         logger.debug("-------------------------------------")
         logger.debug("Paired client removed pairing - reason: \(deleteParams.reason.message), code: \(deleteParams.reason.code)")
         logger.debug("-------------------------------------")
-        sequencesStore.delete(topic: topic)
+        sequencesStore.delete(forKey: topic)
         wcSubscriber.removeSubscription(topic: topic)
         let response = JSONRPCResponse<Bool>(id: requestId, result: true)
 //        relayer.respond(topic: topic, payload: response) { error in
@@ -218,11 +258,16 @@ final class PairingEngine {
     
     private func handlePairingApprove(approveParams: PairingType.ApproveParams, pendingTopic: String, reqestId: Int64) {
         logger.debug("Responder Client approved pairing on topic: \(pendingTopic)")
-        guard case let .pending(pairingPending) = sequencesStore.get(topic: pendingTopic) else {
-                  logger.debug("Could not find pending pairing associated with topic \(pendingTopic)")
+//        guard case let .pending(pairingPending) = sequencesStore.get(topic: pendingTopic) else {
+//                  logger.debug("Could not find pending pairing associated with topic \(pendingTopic)")
+//                  return
+//        }
+        guard let pairing = try? sequencesStore.get(key: pendingTopic), case let .left(pairingPending) = pairing.sequenceState else {
                   return
         }
-        let selfPublicKey = Data(hex: pairingPending.`self`.publicKey)
+        
+//        let selfPublicKey = Data(hex: pairingPending.`self`.publicKey)
+        let selfPublicKey = Data(hex: pairing.`self`.publicKey)
         let privateKey = try! crypto.getPrivateKey(for: selfPublicKey)!
         let peerPublicKey = Data(hex: approveParams.responder.publicKey)
         let agreementKeys = try! Crypto.X25519.generateAgreementKeys(peerPublicKey: peerPublicKey, privateKey: privateKey)
@@ -232,23 +277,39 @@ final class PairingEngine {
         let controllerKey = proposal.proposer.controller ? selfPublicKey.toHexString() : proposal.proposer.publicKey
         let controller = Controller(publicKey: controllerKey)
    
-        let settledPairing = PairingType.Settled(
+//        let settledPairing = PairingType.Settled(
+//            topic: settledTopic,
+//            relay: approveParams.relay,
+//            self: PairingType.Participant(publicKey: selfPublicKey.toHexString()),
+//            peer: PairingType.Participant(publicKey: approveParams.responder.publicKey, metadata: approveParams.responder.metadata),
+//            permissions: PairingType.Permissions(
+//                jsonrpc: proposal.permissions.jsonrpc,
+//                controller: controller),
+//            expiry: approveParams.expiry,
+//            state: approveParams.state)
+//
+//        sequencesStore.update(topic: proposal.topic, newTopic: settledTopic, sequenceState: .settled(settledPairing))
+        
+        let peer = PairingType.Participant(publicKey: approveParams.responder.publicKey, metadata: approveParams.responder.metadata)
+        let settledPairing = PairingSequence(
             topic: settledTopic,
             relay: approveParams.relay,
             self: PairingType.Participant(publicKey: selfPublicKey.toHexString()),
-            peer: PairingType.Participant(publicKey: approveParams.responder.publicKey, metadata: approveParams.responder.metadata),
-            permissions: PairingType.Permissions(
-                jsonrpc: proposal.permissions.jsonrpc,
-                controller: controller),
-            expiry: approveParams.expiry,
-            state: approveParams.state)
+            expiryDate: Date(timeIntervalSinceNow: TimeInterval(approveParams.expiry)),
+            sequenceState: .right(PairingSequence.Settled(
+                peer: peer,
+                permissions: PairingType.Permissions(
+                    jsonrpc: proposal.permissions.jsonrpc,
+                    controller: controller),
+                state: approveParams.state)))
+        try? sequencesStore.update(topic: proposal.topic, newTopic: settledTopic, sequenceState: settledPairing)
         
-        sequencesStore.update(topic: proposal.topic, newTopic: settledTopic, sequenceState: .settled(settledPairing))
         wcSubscriber.setSubscription(topic: settledTopic)
         wcSubscriber.removeSubscription(topic: proposal.topic)
         let response = JSONRPCResponse<Bool>(id: reqestId, result: true)
         relayer.respond(topic: proposal.topic, payload: response) { [weak self] error in
-            self?.onPairingApproved?(settledPairing, pendingTopic)
+            let pairing = Pairing(topic: settledPairing.topic, peer: peer.metadata)
+            self?.onPairingApproved?(pairing, pendingTopic, settledPairing.relay)
         }
     }
     

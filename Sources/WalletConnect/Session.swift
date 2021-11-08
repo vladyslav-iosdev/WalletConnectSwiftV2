@@ -19,3 +19,10 @@ public struct SessionPermissions: Equatable {
         self.methods = methods
     }
 }
+
+
+
+public struct Pairing {
+    public let topic: String
+    public let peer: AppMetadata? // TODO: Remove optional, there's always a peer
+}

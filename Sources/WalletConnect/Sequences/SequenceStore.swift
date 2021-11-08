@@ -11,7 +11,6 @@ struct PairingSequence: Codable, Expirable {
     let expiryDate: Date
     let sequenceState: Either<Pending, Settled>
     
-    
     struct Pending: Codable {
         let proposal: PairingType.Proposal
         let status: PairingType.Pending.PendingStatus
@@ -24,21 +23,22 @@ struct PairingSequence: Codable, Expirable {
     }
 }
 
-final class SequenceStore {
+final class SequenceStore<T> where T: Codable, T: Expirable {
     
-    private let defaults = UserDefaults.standard
+    private let defaults: KeyValueStorage
     private let dateInitializer: () -> Date
     
-    init(dateInitializer: @escaping () -> Date = Date.init) {
+    init(defaults: KeyValueStorage, dateInitializer: @escaping () -> Date = Date.init) {
+        self.defaults = defaults
         self.dateInitializer = dateInitializer
     }
     
-    func set<T>(_ item: T, forKey key: String) throws where T: Codable {
+    func set(_ item: T, forKey key: String) throws {
         let encoded = try JSONEncoder().encode(item)
         defaults.set(encoded, forKey: key)
     }
     
-    func get<T>(key: String) throws -> T? where T: Codable, T: Expirable {
+    func get(key: String) throws -> T? {
         guard let data = defaults.object(forKey: key) as? Data else { return nil }
         let item = try JSONDecoder().decode(T.self, from: data)
         
@@ -51,7 +51,7 @@ final class SequenceStore {
         return item
     }
     
-    func getAll<T>() -> [T] where T: Codable, T: Expirable {
+    func getAll() -> [T] {
         return defaults.dictionaryRepresentation().compactMap {
             if let data = $0.value as? Data, let item = try? JSONDecoder().decode(T.self, from: data) {
                 
@@ -67,14 +67,11 @@ final class SequenceStore {
         }
     }
     
-    // change signature
-    func update<T>(topic: String, newTopic: String? = nil, sequenceState: T) throws where T: Codable {
+    func update(topic: String, newTopic: String? = nil, sequenceState: T) throws {
         if let newTopic = newTopic {
             defaults.removeObject(forKey: topic)
-//            create(topic: newTopic, sequenceState: sequenceState)
             try set(sequenceState, forKey: newTopic)
         } else {
-//            create(topic: topic, sequenceState: sequenceState)
             try set(sequenceState, forKey: topic)
         }
     }
